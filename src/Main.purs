@@ -1,12 +1,10 @@
 module Main where
 
 import Prelude
-
 import Data.Array (foldl)
-import Data.Array as Arr
 import Data.DateTime.Instant (unInstant)
-import Data.Int (round, toNumber)
-import Data.Maybe (Maybe(..), maybe)
+import Data.Int (round)
+import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (traverse)
 import Effect (Effect)
@@ -16,27 +14,19 @@ import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Graphics.Canvas (CanvasElement, Context2D)
 import Graphics.Canvas as C
-import Web.Event.Event (type_)
-import Web.Event.EventTarget (addEventListener, eventListener)
-import Web.Event.Internal.Types (Event)
+import Main.ControlEvents (ControlEvent(..), listenForControlEvents)
 import Web.HTML (window)
-import Web.HTML.Window (requestAnimationFrame, toEventTarget)
-import Web.UIEvent.KeyboardEvent (KeyboardEvent)
-import Web.UIEvent.KeyboardEvent as KE
-import Web.UIEvent.KeyboardEvent.EventTypes (keydown, keyup)
-import Web.UIEvent.MouseEvent as ME
-import Web.UIEvent.MouseEvent.EventTypes (mouseup)
+import Web.HTML.Window (requestAnimationFrame)
+
+canvasId :: String
+canvasId = "game-canvas"
 
 main :: Effect Unit
 main = do
-  w <- window
-  mCanvas <- C.getCanvasElementById "game-canvas"
-  events <- Ref.new ([] :: Array Event)
-  el <- eventListener (\e -> Ref.modify_ (\r -> Arr.snoc r e) events)
-  addEventListener keydown el false (toEventTarget w)
-  addEventListener keyup el false (toEventTarget w)
-  addEventListener mouseup el false (toEventTarget w)
+  events <- Ref.new ([] :: Array ControlEvent)
+  listenForControlEvents events canvasId
   cur_now <- curTime
+  mCanvas <- C.getCanvasElementById canvasId
   case mCanvas of
     Just canvas -> C.getContext2D canvas >>= \ctx -> gameLoop canvas ctx events newGame cur_now
     Nothing -> error "Could not find canvas element with id 'game-canvas'."
@@ -46,7 +36,7 @@ curTime = do
   Milliseconds cur_now <- map unInstant now
   pure cur_now
 
-gameLoop :: CanvasElement -> Context2D -> Ref (Array Event) -> Game -> Number -> Effect Unit
+gameLoop :: CanvasElement -> Context2D -> Ref (Array ControlEvent) -> Game -> Number -> Effect Unit
 gameLoop canvas ctx events g prev_now = do
   w <- window
   cur_now <- curTime
@@ -74,34 +64,38 @@ type Game
 newGame :: Game
 newGame = { p: { x: 50.0, y: 50.0, vx: 0.0, vy: 0.0, width: 20.0, height: 20.0, grounded: false }, lines: [ { x1: 0.0, y1: 599.0, x2: 800.0, y2: 599.0 }, { x1: 400.0, y1: 500.0, x2: 500.0, y2: 500.0 } ] }
 
-processEvent :: Game -> Event -> Game
-processEvent g e
-  | type_ e == mouseup = maybe g (\me -> g { p { x = toNumber $ ME.clientX me, y = toNumber $ ME.clientY me, vx = 0.0, vy = 0.0 } } ) ( ME.fromEvent e )
-  | type_ e == keydown = maybe g ( keyDownEvent g ) ( KE.fromEvent e )
-  | type_ e == keyup = maybe g ( keyUpEvent g ) ( KE.fromEvent e )
-  | otherwise = g
+processEvent :: Game -> ControlEvent -> Game
+processEvent g (Mouse1Up me) = g { p { x = me.x, y = me.y, vx = 0.0, vy = 0.0, grounded = false } }
 
-keyDownEvent :: Game -> KeyboardEvent -> Game
-keyDownEvent g e
-  | KE.key e == "z" && g.p.grounded == true = g { p { vy = -6.0, grounded = false } }
-  | KE.key e == "ArrowLeft" = g { p { vx = -4.0 } }
-  | KE.key e == "ArrowRight" = g { p { vx = 4.0 } }
-  | otherwise = g
+processEvent g (Mouse1Down _) = g
 
-keyUpEvent :: Game -> KeyboardEvent -> Game
-keyUpEvent g e
-  | KE.key e == "z" && g.p.vy < 0.0 = g { p { vy = 0.0 } }
-  | KE.key e == "ArrowLeft" && g.p.vx < 0.0 = g { p { vx = 0.0 } }
-  | KE.key e == "ArrowRight" && g.p.vx > 0.0 = g { p { vx = 0.0 } }
-  | otherwise = g
+processEvent g JumpPress = if g.p.grounded == true then g { p { vy = -6.0, grounded = false } } else g
+
+processEvent g JumpRelease = if g.p.vy < 0.0 then g { p { vy = 0.0 } } else g
+
+processEvent g LeftPress = g { p { vx = -4.0 } }
+
+processEvent g LeftRelease = if g.p.vx < 0.0 then g { p { vx = 0.0 } } else g
+
+processEvent g RightPress = g { p { vx = 4.0 } }
+
+processEvent g RightRelease = if g.p.vx > 0.0 then g { p { vx = 0.0 } } else g
+
+processEvent g SlidePress = g
+
+processEvent g SlideRelease = g
 
 updateGame :: Game -> Number -> Game
 updateGame g dt = g { p { x = x, y = y, vy = vy, grounded = grounded } }
   where
   x = g.p.x + g.p.vx
+
   vy = if cp.grounded == false then g.p.vy + dt * 15.0 else 0.0
+
   cp = foldl collide g.p g.lines
+
   y = cp.y + vy
+
   grounded = cp.grounded
 
 centerOfMass :: Player -> { cx :: Number, cy :: Number }
