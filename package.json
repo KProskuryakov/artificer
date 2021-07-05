@@ -1,5 +1,16 @@
 {
+  "scripts": {
+    "start": "concurrently npm:watch-spago npm:watch-reload npm:watch-serve",
+    "watch-spago": "onchange -i -k 'src/**/*' -- npm run build",
+    "watch-reload": "livereload 'index.js.map'",
+    "watch-serve": "static-server",
+    "build": "spago bundle-app -x --purs-args '-g sourcemaps'"
+  },
   "dependencies": {
-    "purty": "^7.0.0"
+    "concurrently": "^6.1.0",
+    "livereload": "^0.9.3",
+    "onchange": "^7.1.0",
+    "purty": "^7.0.0",
+    "static-server": "^2.2.1"
   }
 }

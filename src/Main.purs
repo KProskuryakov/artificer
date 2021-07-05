@@ -14,6 +14,7 @@ import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Graphics.Canvas (CanvasElement, Context2D)
 import Graphics.Canvas as C
+import Main.Lines (Line, collide)
 import Main.ControlEvents (ControlEvent(..), listenForControlEvents)
 import Web.HTML (window)
 import Web.HTML.Window (requestAnimationFrame)
@@ -52,59 +53,96 @@ gameLoop canvas ctx events g prev_now = do
   _ <- requestAnimationFrame (gameLoop canvas ctx events ug cur_now) w
   pure unit
 
-type Line
-  = { x1 :: Number, y1 :: Number, x2 :: Number, y2 :: Number }
-
 type Player
-  = { x :: Number, y :: Number, vx :: Number, vy :: Number, width :: Number, height :: Number, grounded :: Boolean }
+  = { x :: Number
+    , y :: Number
+    , vx :: Number
+    , vy :: Number
+    , width :: Number
+    , height :: Number
+    , grounded :: Boolean
+    , sliding :: Boolean
+    }
 
 type Game
-  = { p :: Player, lines :: Array Line }
+  = { p :: Player
+    , lines :: Array Line
+    }
 
 newGame :: Game
-newGame = { p: { x: 50.0, y: 50.0, vx: 0.0, vy: 0.0, width: 20.0, height: 20.0, grounded: false }, lines: [ { x1: 0.0, y1: 599.0, x2: 800.0, y2: 599.0 }, { x1: 400.0, y1: 500.0, x2: 500.0, y2: 500.0 } ] }
+newGame =
+  { p:
+      { x: 50.0
+      , y: 50.0
+      , vx: 0.0
+      , vy: 0.0
+      , width: 20.0
+      , height: 20.0
+      , grounded: false
+      , sliding: false
+      }
+  , lines:
+      [ { x1: 0.0
+        , y1: 599.0
+        , x2: 800.0
+        , y2: 599.0
+        }
+      , { x1: 400.0
+        , y1: 500.0
+        , x2: 500.0
+        , y2: 500.0
+        }
+      , { x1: 550.0
+        , y1: 500.0
+        , x2: 750.0
+        , y2: 300.0
+        }
+      , { x1: 350.0
+        , y1: 100.0
+        , x2: 600.0
+        , y2: 200.0
+        }
+      , { x1: 500.0
+        , y1: 450.0
+        , x2: 500.0
+        , y2: 500.0
+        }
+      ]
+  }
 
 processEvent :: Game -> ControlEvent -> Game
-processEvent g (Mouse1Up me) = g { p { x = me.x, y = me.y, vx = 0.0, vy = 0.0, grounded = false } }
+-- processEvent g (Mouse1Up me) = g { p { x = me.x, y = me.y, vx = 0.0, vy = 0.0, grounded = false } }
+processEvent g (Mouse1Up me) = g { p { x = me.x, y = me.y, vx = 0.0, vy = 0.0 } }
 
 processEvent g (Mouse1Down _) = g
 
-processEvent g JumpPress = if g.p.grounded == true then g { p { vy = -6.0, grounded = false } } else g
+-- processEvent g JumpPress = if g.p.grounded == true then g { p { vy = -6.0, grounded = false } } else g
+processEvent g JumpPress = g { p { vy = -6.0 } }
 
 processEvent g JumpRelease = if g.p.vy < 0.0 then g { p { vy = 0.0 } } else g
 
-processEvent g LeftPress = g { p { vx = -4.0 } }
+processEvent g LeftPress = g { p { vx = -2.0 } }
 
 processEvent g LeftRelease = if g.p.vx < 0.0 then g { p { vx = 0.0 } } else g
 
-processEvent g RightPress = g { p { vx = 4.0 } }
+processEvent g RightPress = g { p { vx = 2.0 } }
 
 processEvent g RightRelease = if g.p.vx > 0.0 then g { p { vx = 0.0 } } else g
 
-processEvent g SlidePress = g
+processEvent g SlidePress = g { p { sliding = true } }
 
-processEvent g SlideRelease = g
+processEvent g SlideRelease = g { p { sliding = false } }
 
 updateGame :: Game -> Number -> Game
-updateGame g dt = g { p { x = x, y = y, vy = vy, grounded = grounded } }
+updateGame g dt = g { p = cp }
   where
-  x = g.p.x + g.p.vx
+  bp = g.p { x = g.p.x + g.p.vx, vy = vy, y = y }
 
-  vy = if cp.grounded == false then g.p.vy + dt * 15.0 else 0.0
+  vy = g.p.vy + dt * 30.0
 
-  cp = foldl collide g.p g.lines
+  y = g.p.y + vy
 
-  y = cp.y + vy
-
-  grounded = cp.grounded
-
-centerOfMass :: Player -> { cx :: Number, cy :: Number }
-centerOfMass p = { cx: p.x + p.width / 2.0, cy: p.y + p.height / 2.0 }
-
-collide :: Player -> Line -> Player
-collide p l
-  | between l.x1 l.x2 (centerOfMass p).cx || between l.y1 l.y2 (centerOfMass p).cy = if between p.y (p.y + p.height) l.y1 then p { y = l.y1 - p.height - 1.0, grounded = true } else p
-  | otherwise = p
+  cp = foldl collide bp g.lines
 
 draw :: CanvasElement -> Context2D -> Game -> Number -> Effect Unit
 draw canvas ctx g dt = do
@@ -117,7 +155,7 @@ draw canvas ctx g dt = do
         C.setFillStyle ctx "black"
         C.fillRect ctx { x: 0.0, y: 0.0, width, height }
         C.setFillStyle ctx "white"
-        C.fillRect ctx { x: g.p.x, y: g.p.y, width: g.p.width, height: g.p.height }
+        C.fillRect ctx { x: g.p.x - g.p.width / 2.0, y: g.p.y - g.p.height / 2.0, width: g.p.width, height: g.p.height }
         _ <- traverse (drawLine ctx) g.lines
         C.setStrokeStyle ctx "white"
         C.strokeText ctx fps 10.0 10.0

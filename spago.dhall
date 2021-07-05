@@ -8,6 +8,7 @@ You can edit this file as you like.
   , "canvas"
   , "console"
   , "datetime"
+  , "debug"
   , "effect"
   , "foldable-traversable"
   , "integers"
